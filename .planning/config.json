@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "workflow": {
+    "yolo": false,
+    "granularity": "coarse",
+    "agents": true,
+    "atomic_commits": true
+  },
+  "models": {
+    "planner": "claude-opus-4-7",
+    "executor": "claude-sonnet-4-6",
+    "researcher": "claude-sonnet-4-6"
+  }
+}
