@@ -10,6 +10,9 @@ import (
 func TestConfigLoad_FromEnv(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "test-key")
 	t.Setenv("LISTEN_ADDR", ":9090")
+	t.Setenv("AUTHELIA_URL", "https://authelia.example.com")
+	t.Setenv("AUTHELIA_CLIENT_ID", "test-client")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
 	cfg := Load()
 	if cfg.GeminiAPIKey != "test-key" {
 		t.Errorf("GeminiAPIKey = %q, want %q", cfg.GeminiAPIKey, "test-key")
@@ -22,6 +25,9 @@ func TestConfigLoad_FromEnv(t *testing.T) {
 func TestConfigLoad_DefaultListenAddr(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "test-key")
 	t.Setenv("LISTEN_ADDR", "")
+	t.Setenv("AUTHELIA_URL", "https://authelia.example.com")
+	t.Setenv("AUTHELIA_CLIENT_ID", "test-client")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
 	cfg := Load()
 	if cfg.ListenAddr != ":8080" {
 		t.Errorf("ListenAddr = %q, want %q", cfg.ListenAddr, ":8080")
@@ -66,6 +72,9 @@ func TestConfigLoad_EnvWinsOverDotenv(t *testing.T) {
 	defer os.Chdir(orig)
 
 	t.Setenv("GEMINI_API_KEY", "from-env")
+	t.Setenv("AUTHELIA_URL", "https://authelia.example.com")
+	t.Setenv("AUTHELIA_CLIENT_ID", "test-client")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
 	cfg := Load()
 	if cfg.GeminiAPIKey != "from-env" {
 		t.Errorf("GeminiAPIKey = %q, want %q (env should win over .env)", cfg.GeminiAPIKey, "from-env")
