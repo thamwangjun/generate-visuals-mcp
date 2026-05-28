@@ -80,6 +80,46 @@ func TestHTTPEndpointPath_MCPResponds(t *testing.T) {
 	}
 }
 
+// TestPRMEndpoint_PublicAccess verifies that the /.well-known/oauth-protected-resource
+// endpoint is publicly accessible and returns valid JSON with required fields.
+func TestPRMEndpoint_PublicAccess(t *testing.T) {
+	prmConfig := server.ProtectedResourceMetadataConfig{
+		Resource:               "https://mcp.example.com",
+		AuthorizationServers:   []string{"https://authelia.example.com"},
+		ScopesSupported:        []string{"openid", "profile"},
+		BearerMethodsSupported: []string{"header"},
+		ResourceName:           "generate-visuals-mcp",
+	}
+	prmHandler := server.NewProtectedResourceMetadataHandler(prmConfig)
+
+	ts := httptest.NewServer(prmHandler)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatalf("GET /.well-known/oauth-protected-resource: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if _, ok := body["resource"]; !ok {
+		t.Error("body missing 'resource' field")
+	}
+	if _, ok := body["authorization_servers"]; !ok {
+		t.Error("body missing 'authorization_servers' field")
+	}
+}
+
 // TestMCPServerIdentity_InitializeResponse verifies that the MCP server announces
 // itself as name="generate-visuals-mcp" and version="1.0.0" in the initialize
 // JSON-RPC response. This covers gap SRV-04.

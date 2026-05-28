@@ -55,6 +55,104 @@ func TestConfigLoad_MissingKey_Fatal(t *testing.T) {
 	Load() // should call log.Fatal and exit
 }
 
+func TestConfigLoad_MissingAutheliaURL(t *testing.T) {
+	env := append(os.Environ(),
+		"GEMINI_API_KEY=test-key",
+		"AUTHELIA_URL=",
+		"AUTHELIA_CLIENT_ID=test-client",
+		"MCP_PUBLIC_URL=https://mcp.example.com",
+		"CONFIG_TEST_SUBPROCESS=1",
+	)
+	cmd := exec.Command("go", "test", "-run", "TestConfigLoad_MissingAutheliaURL_Fatal", "-v", ".")
+	cmd.Dir = filepath.Join("..")
+	cmd.Env = env
+	out, _ := cmd.CombinedOutput()
+	if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() == 0 {
+		t.Logf("output: %s", out)
+		t.Error("expected non-zero exit code when AUTHELIA_URL is missing")
+	}
+}
+
+func TestConfigLoad_MissingAutheliaURL_Fatal(t *testing.T) {
+	if os.Getenv("CONFIG_TEST_SUBPROCESS") != "1" {
+		t.Skip("subprocess-only test")
+	}
+	t.Setenv("GEMINI_API_KEY", "test-key")
+	t.Setenv("AUTHELIA_URL", "")
+	t.Setenv("AUTHELIA_CLIENT_ID", "test-client")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
+	Load()
+}
+
+func TestConfigLoad_MissingAutheliaClientID(t *testing.T) {
+	env := append(os.Environ(),
+		"GEMINI_API_KEY=test-key",
+		"AUTHELIA_URL=https://authelia.example.com",
+		"AUTHELIA_CLIENT_ID=",
+		"MCP_PUBLIC_URL=https://mcp.example.com",
+		"CONFIG_TEST_SUBPROCESS=1",
+	)
+	cmd := exec.Command("go", "test", "-run", "TestConfigLoad_MissingAutheliaClientID_Fatal", "-v", ".")
+	cmd.Dir = filepath.Join("..")
+	cmd.Env = env
+	out, _ := cmd.CombinedOutput()
+	if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() == 0 {
+		t.Logf("output: %s", out)
+		t.Error("expected non-zero exit code when AUTHELIA_CLIENT_ID is missing")
+	}
+}
+
+func TestConfigLoad_MissingAutheliaClientID_Fatal(t *testing.T) {
+	if os.Getenv("CONFIG_TEST_SUBPROCESS") != "1" {
+		t.Skip("subprocess-only test")
+	}
+	t.Setenv("GEMINI_API_KEY", "test-key")
+	t.Setenv("AUTHELIA_URL", "https://authelia.example.com")
+	t.Setenv("AUTHELIA_CLIENT_ID", "")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
+	Load()
+}
+
+func TestConfigLoad_MissingPublicURL(t *testing.T) {
+	env := append(os.Environ(),
+		"GEMINI_API_KEY=test-key",
+		"AUTHELIA_URL=https://authelia.example.com",
+		"AUTHELIA_CLIENT_ID=test-client",
+		"MCP_PUBLIC_URL=",
+		"CONFIG_TEST_SUBPROCESS=1",
+	)
+	cmd := exec.Command("go", "test", "-run", "TestConfigLoad_MissingPublicURL_Fatal", "-v", ".")
+	cmd.Dir = filepath.Join("..")
+	cmd.Env = env
+	out, _ := cmd.CombinedOutput()
+	if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() == 0 {
+		t.Logf("output: %s", out)
+		t.Error("expected non-zero exit code when MCP_PUBLIC_URL is missing")
+	}
+}
+
+func TestConfigLoad_MissingPublicURL_Fatal(t *testing.T) {
+	if os.Getenv("CONFIG_TEST_SUBPROCESS") != "1" {
+		t.Skip("subprocess-only test")
+	}
+	t.Setenv("GEMINI_API_KEY", "test-key")
+	t.Setenv("AUTHELIA_URL", "https://authelia.example.com")
+	t.Setenv("AUTHELIA_CLIENT_ID", "test-client")
+	t.Setenv("MCP_PUBLIC_URL", "")
+	Load()
+}
+
+func TestConfigLoad_TrailingSlashStripped(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "test-key")
+	t.Setenv("AUTHELIA_URL", "https://authelia.example.com/")
+	t.Setenv("AUTHELIA_CLIENT_ID", "test-client")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
+	cfg := Load()
+	if cfg.AutheliaBaseURL != "https://authelia.example.com" {
+		t.Errorf("AutheliaBaseURL = %q, want %q", cfg.AutheliaBaseURL, "https://authelia.example.com")
+	}
+}
+
 func TestConfigLoad_EnvWinsOverDotenv(t *testing.T) {
 	dir := t.TempDir()
 	envFile := filepath.Join(dir, ".env")
