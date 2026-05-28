@@ -1,17 +1,20 @@
 package auth_test
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/thamwangjun/generate-visuals-mcp/internal/auth"
 	"github.com/thamwangjun/generate-visuals-mcp/internal/config"
 )
 
@@ -123,45 +126,257 @@ func makeTestConfig(autheliaURL, clientID, publicURL string) *config.Config {
 	}
 }
 
+// waitForLoaded polls until the validator is loaded (returns 401 instead of 503).
+func waitForLoaded(t *testing.T, validator *auth.Validator, prmURL string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	handler := validator.Middleware(prmURL)(next)
+	for time.Now().Before(deadline) {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusServiceUnavailable {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("validator never reached loaded state within timeout")
+}
+
 // TestMiddleware_NotLoaded tests that a 503 is returned when JWKS is not yet loaded.
 func TestMiddleware_NotLoaded(t *testing.T) {
-	t.Skip("not implemented")
-}
+	// JWKS server that always returns 503 — loaded stays false
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(ts.Close)
 
-// TestMiddleware_NoToken tests that a 401 is returned when no Authorization header is present.
-func TestMiddleware_NoToken(t *testing.T) {
-	t.Skip("not implemented")
-}
+	cfg := makeTestConfig(ts.URL, "client-id", "https://mcp.example.com")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-// TestMiddleware_InvalidToken tests that a 401 is returned for a malformed JWT.
-func TestMiddleware_InvalidToken(t *testing.T) {
-	t.Skip("not implemented")
-}
+	validator, err := auth.NewValidatorAsync(ctx, cfg)
+	if err != nil {
+		t.Fatalf("NewValidatorAsync: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond) // let waitForLoad attempt and fail
 
-// TestMiddleware_ValidToken tests that a 200 is returned for a valid JWT.
-func TestMiddleware_ValidToken(t *testing.T) {
-	t.Skip("not implemented")
-}
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := validator.Middleware("https://mcp.example.com/.well-known/oauth-protected-resource")(next)
 
-// TestMiddleware_WrongIssuer tests that a 401 is returned for a token with wrong iss.
-func TestMiddleware_WrongIssuer(t *testing.T) {
-	t.Skip("not implemented")
-}
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	req.Header.Set("Authorization", "Bearer xxx")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
 
-// TestMiddleware_WrongAudience tests that a 401 is returned for a token with wrong aud.
-func TestMiddleware_WrongAudience(t *testing.T) {
-	t.Skip("not implemented")
-}
-
-// TestMiddleware_401Header tests that the 401 response contains the correct WWW-Authenticate header.
-func TestMiddleware_401Header(t *testing.T) {
-	t.Skip("not implemented")
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "auth_not_ready") {
+		t.Errorf("body = %q, want auth_not_ready", rr.Body.String())
+	}
 }
 
 // TestMiddleware_503NoWWWAuthenticate tests that the 503 response does NOT contain WWW-Authenticate.
 func TestMiddleware_503NoWWWAuthenticate(t *testing.T) {
-	t.Skip("not implemented")
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(ts.Close)
+
+	cfg := makeTestConfig(ts.URL, "client-id", "https://mcp.example.com")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	validator, err := auth.NewValidatorAsync(ctx, cfg)
+	if err != nil {
+		t.Fatalf("NewValidatorAsync: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := validator.Middleware("https://mcp.example.com/.well-known/oauth-protected-resource")(next)
+
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rr.Code)
+	}
+	if got := rr.Header().Get("WWW-Authenticate"); got != "" {
+		t.Errorf("WWW-Authenticate = %q, want empty", got)
+	}
 }
 
-// Ensure config import is used.
-var _ = config.Config{}
+// TestMiddleware_NoToken tests that a 401 is returned when no Authorization header is present.
+func TestMiddleware_NoToken(t *testing.T) {
+	jwksURL, _ := makeTestJWKSServer(t)
+	cfg := makeTestConfig(jwksURL, "test-client", "https://mcp.example.com")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	validator, err := auth.NewValidatorAsync(ctx, cfg)
+	if err != nil {
+		t.Fatalf("NewValidatorAsync: %v", err)
+	}
+	prmURL := "https://mcp.example.com/.well-known/oauth-protected-resource"
+	waitForLoaded(t, validator, prmURL, 2*time.Second)
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	handler := validator.Middleware(prmURL)(next)
+
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rr.Code)
+	}
+	if !strings.HasPrefix(rr.Header().Get("WWW-Authenticate"), "Bearer resource_metadata=") {
+		t.Errorf("WWW-Authenticate = %q, want Bearer resource_metadata=...", rr.Header().Get("WWW-Authenticate"))
+	}
+}
+
+// TestMiddleware_401Header tests that the 401 response contains the correct WWW-Authenticate header.
+func TestMiddleware_401Header(t *testing.T) {
+	jwksURL, _ := makeTestJWKSServer(t)
+	cfg := makeTestConfig(jwksURL, "test-client", "https://mcp.example.com")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	validator, err := auth.NewValidatorAsync(ctx, cfg)
+	if err != nil {
+		t.Fatalf("NewValidatorAsync: %v", err)
+	}
+	prmURL := "https://mcp.example.com/.well-known/oauth-protected-resource"
+	waitForLoaded(t, validator, prmURL, 2*time.Second)
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	handler := validator.Middleware(prmURL)(next)
+
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	want := `Bearer resource_metadata="` + prmURL + `"`
+	if got := rr.Header().Get("WWW-Authenticate"); got != want {
+		t.Errorf("WWW-Authenticate = %q, want %q", got, want)
+	}
+}
+
+// TestMiddleware_InvalidToken tests that a 401 is returned for a malformed JWT.
+func TestMiddleware_InvalidToken(t *testing.T) {
+	jwksURL, _ := makeTestJWKSServer(t)
+	cfg := makeTestConfig(jwksURL, "test-client", "https://mcp.example.com")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	validator, err := auth.NewValidatorAsync(ctx, cfg)
+	if err != nil {
+		t.Fatalf("NewValidatorAsync: %v", err)
+	}
+	prmURL := "https://mcp.example.com/.well-known/oauth-protected-resource"
+	waitForLoaded(t, validator, prmURL, 2*time.Second)
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	handler := validator.Middleware(prmURL)(next)
+
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	req.Header.Set("Authorization", "Bearer not-a-jwt")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rr.Code)
+	}
+}
+
+// TestMiddleware_ValidToken tests that a 200 is returned for a valid JWT.
+func TestMiddleware_ValidToken(t *testing.T) {
+	jwksURL, privKey := makeTestJWKSServer(t)
+	cfg := makeTestConfig(jwksURL, "test-client", "https://mcp.example.com")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	validator, err := auth.NewValidatorAsync(ctx, cfg)
+	if err != nil {
+		t.Fatalf("NewValidatorAsync: %v", err)
+	}
+	prmURL := "https://mcp.example.com/.well-known/oauth-protected-resource"
+	waitForLoaded(t, validator, prmURL, 2*time.Second)
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	handler := validator.Middleware(prmURL)(next)
+
+	token := signTestToken(t, privKey, jwksURL, "test-client", time.Now().Add(1*time.Hour))
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rr.Code)
+	}
+}
+
+// TestMiddleware_WrongIssuer tests that a 401 is returned for a token with wrong iss.
+func TestMiddleware_WrongIssuer(t *testing.T) {
+	jwksURL, privKey := makeTestJWKSServer(t)
+	cfg := makeTestConfig(jwksURL, "test-client", "https://mcp.example.com")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	validator, err := auth.NewValidatorAsync(ctx, cfg)
+	if err != nil {
+		t.Fatalf("NewValidatorAsync: %v", err)
+	}
+	prmURL := "https://mcp.example.com/.well-known/oauth-protected-resource"
+	waitForLoaded(t, validator, prmURL, 2*time.Second)
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	handler := validator.Middleware(prmURL)(next)
+
+	token := signTestToken(t, privKey, "https://wrong-issuer.example.com", "test-client", time.Now().Add(1*time.Hour))
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rr.Code)
+	}
+}
+
+// TestMiddleware_WrongAudience tests that a 401 is returned for a token with wrong aud.
+func TestMiddleware_WrongAudience(t *testing.T) {
+	jwksURL, privKey := makeTestJWKSServer(t)
+	cfg := makeTestConfig(jwksURL, "test-client", "https://mcp.example.com")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	validator, err := auth.NewValidatorAsync(ctx, cfg)
+	if err != nil {
+		t.Fatalf("NewValidatorAsync: %v", err)
+	}
+	prmURL := "https://mcp.example.com/.well-known/oauth-protected-resource"
+	waitForLoaded(t, validator, prmURL, 2*time.Second)
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	handler := validator.Middleware(prmURL)(next)
+
+	token := signTestToken(t, privKey, jwksURL, "wrong-client", time.Now().Add(1*time.Hour))
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rr.Code)
+	}
+}
