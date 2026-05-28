@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"time"
 
 	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/thamwangjun/generate-visuals-mcp/internal/auth"
 	"github.com/thamwangjun/generate-visuals-mcp/internal/config"
 	"github.com/thamwangjun/generate-visuals-mcp/internal/tools"
 )
@@ -22,12 +25,32 @@ func main() {
 
 	tools.Register(mcpServer, cfg)
 
-	httpHandler := server.NewStreamableHTTPServer(mcpServer, server.WithEndpointPath("/mcp"))
-	// Phase 2: wrap httpHandler with auth middleware here — see internal/auth/
+	httpServer := server.NewStreamableHTTPServer(mcpServer, server.WithEndpointPath("/mcp"))
+
+	ctx := context.Background()
+	validator, err := auth.NewValidatorAsync(ctx, cfg)
+	if err != nil {
+		log.Fatalf("auth: failed to initialize validator: %v", err)
+	}
+
+	prmURL := cfg.PublicBaseURL + "/.well-known/oauth-protected-resource"
+
+	prmHandler := server.NewProtectedResourceMetadataHandler(server.ProtectedResourceMetadataConfig{
+		Resource:               cfg.PublicBaseURL,
+		AuthorizationServers:   []string{cfg.AutheliaBaseURL},
+		ScopesSupported:        []string{"openid", "profile"},
+		BearerMethodsSupported: []string{"header"},
+		ResourceName:           "generate-visuals-mcp",
+	})
+
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", validator.Middleware(prmURL)(httpServer))
+	mux.Handle("/mcp/", validator.Middleware(prmURL)(httpServer))
+	mux.Handle("/.well-known/oauth-protected-resource", prmHandler)
 
 	httpSrv := &http.Server{
 		Addr:         cfg.ListenAddr,
-		Handler:      httpHandler,
+		Handler:      mux,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  120 * time.Second,
