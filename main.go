@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/mark3labs/mcp-go/server"
@@ -27,7 +30,9 @@ func main() {
 
 	httpServer := server.NewStreamableHTTPServer(mcpServer, server.WithEndpointPath("/mcp"))
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	validator, err := auth.NewValidatorAsync(ctx, cfg)
 	if err != nil {
 		log.Fatalf("auth: failed to initialize validator: %v", err)
@@ -44,8 +49,9 @@ func main() {
 	})
 
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", validator.Middleware(prmURL)(httpServer))
-	mux.Handle("/mcp/", validator.Middleware(prmURL)(httpServer))
+	protected := validator.Middleware(prmURL)(httpServer)
+	mux.Handle("/mcp", protected)
+	mux.Handle("/mcp/", protected)
 	mux.Handle("/.well-known/oauth-protected-resource", prmHandler)
 
 	httpSrv := &http.Server{
@@ -56,8 +62,19 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
+	go func() {
+		<-ctx.Done()
+		stop() // release signal resources
+		log.Printf("shutting down server...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("server shutdown error: %v", err)
+		}
+	}()
+
 	log.Printf("generate-visuals-mcp listening on %s", cfg.ListenAddr)
-	if err := httpSrv.ListenAndServe(); err != nil {
+	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("server error: %v", err)
 	}
 }
