@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -54,14 +55,15 @@ func NewValidatorAsync(ctx context.Context, cfg *config.Config) (*Validator, err
 	}
 	v.kf = kf
 
-	go v.waitForLoad(ctx, jwksURL)
+	go v.waitForLoad(ctx)
 
 	return v, nil
 }
 
-// waitForLoad probes jwksURL with exponential backoff until it returns 200,
-// then sets loaded=true so Middleware stops returning 503.
-func (v *Validator) waitForLoad(ctx context.Context, jwksURL string) {
+// waitForLoad polls the keyfunc's key storage with exponential backoff until at least
+// one key is present, then sets loaded=true so Middleware stops returning 503.
+// This avoids the TOCTOU race of probing the URL independently from keyfunc's own fetch.
+func (v *Validator) waitForLoad(ctx context.Context) {
 	delay := time.Second
 	const maxDelay = 30 * time.Second
 	attempt := 0
@@ -74,18 +76,11 @@ func (v *Validator) waitForLoad(ctx context.Context, jwksURL string) {
 		}
 
 		attempt++
-		resp, err := http.Get(jwksURL) //nolint:noctx,gosec
-		if err == nil && resp.StatusCode == http.StatusOK {
-			resp.Body.Close()
-			// Small pause so keyfunc's internal goroutine can parse and store keys
-			// before we signal that validation is ready.
-			time.Sleep(200 * time.Millisecond)
+		keys, err := v.kf.Storage().KeyReadAll(ctx)
+		if err == nil && len(keys) > 0 {
 			v.loaded.Store(true)
 			log.Printf("auth: JWKS ready (attempt %d)", attempt)
 			return
-		}
-		if resp != nil {
-			resp.Body.Close()
 		}
 		log.Printf("auth: JWKS not ready (attempt %d, next retry in %s): %v", attempt, delay, err)
 		delay = min(delay*2, maxDelay)
@@ -116,6 +111,7 @@ func (v *Validator) Middleware(prmURL string) func(http.Handler) http.Handler {
 				jwt.WithAudience(v.audience),
 				jwt.WithExpirationRequired(),
 				jwt.WithLeeway(10*time.Second),
+				jwt.WithValidMethods([]string{"RS256", "RS384", "RS512", "ES256", "ES384", "ES512"}),
 			)
 			if err != nil || !token.Valid {
 				unauthorized(w, prmURL, "invalid or expired token")
@@ -141,10 +137,11 @@ func extractBearer(r *http.Request) (string, error) {
 
 // unauthorized writes a 401 response with WWW-Authenticate and a JSON error body.
 func unauthorized(w http.ResponseWriter, prmURL, detail string) {
+	detailJSON, _ := json.Marshal(detail)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+prmURL+`"`)
 	w.WriteHeader(http.StatusUnauthorized)
-	fmt.Fprintf(w, `{"error":"invalid_token","error_description":%q}`, detail)
+	fmt.Fprintf(w, `{"error":"invalid_token","error_description":%s}`, detailJSON)
 }
 
 // serviceUnavailable writes a 503 response. It deliberately omits WWW-Authenticate
