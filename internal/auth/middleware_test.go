@@ -160,7 +160,9 @@ func TestMiddleware_NotLoaded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewValidatorAsync: %v", err)
 	}
-	time.Sleep(50 * time.Millisecond) // let waitForLoad attempt and fail
+	// loaded starts false (zero value of atomic.Bool).
+	// waitForLoad cannot set it to true within its initial 1-second back-off delay,
+	// so no synchronization is needed here.
 
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -195,7 +197,9 @@ func TestMiddleware_503NoWWWAuthenticate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewValidatorAsync: %v", err)
 	}
-	time.Sleep(50 * time.Millisecond)
+	// loaded starts false (zero value of atomic.Bool).
+	// waitForLoad cannot set it to true within its initial 1-second back-off delay,
+	// so no synchronization is needed here.
 
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
