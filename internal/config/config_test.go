@@ -35,8 +35,7 @@ func TestConfigLoad_DefaultListenAddr(t *testing.T) {
 }
 
 func TestConfigLoad_MissingKey(t *testing.T) {
-	cmd := exec.Command("go", "test", "-run", "TestConfigLoad_MissingKey_Fatal", "-v", ".")
-	cmd.Dir = filepath.Join("..")
+	cmd := exec.Command("go", "test", "-run", "TestConfigLoad_MissingKey_Fatal", "-v", "github.com/thamwangjun/generate-visuals-mcp/internal/config")
 	cmd.Env = append(os.Environ(), "GEMINI_API_KEY=", "CONFIG_TEST_SUBPROCESS=1")
 	out, _ := cmd.CombinedOutput()
 	if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() == 0 {
@@ -63,8 +62,7 @@ func TestConfigLoad_MissingAutheliaURL(t *testing.T) {
 		"MCP_PUBLIC_URL=https://mcp.example.com",
 		"CONFIG_TEST_SUBPROCESS=1",
 	)
-	cmd := exec.Command("go", "test", "-run", "TestConfigLoad_MissingAutheliaURL_Fatal", "-v", ".")
-	cmd.Dir = filepath.Join("..")
+	cmd := exec.Command("go", "test", "-run", "TestConfigLoad_MissingAutheliaURL_Fatal", "-v", "github.com/thamwangjun/generate-visuals-mcp/internal/config")
 	cmd.Env = env
 	out, _ := cmd.CombinedOutput()
 	if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() == 0 {
@@ -92,8 +90,7 @@ func TestConfigLoad_MissingAutheliaClientID(t *testing.T) {
 		"MCP_PUBLIC_URL=https://mcp.example.com",
 		"CONFIG_TEST_SUBPROCESS=1",
 	)
-	cmd := exec.Command("go", "test", "-run", "TestConfigLoad_MissingAutheliaClientID_Fatal", "-v", ".")
-	cmd.Dir = filepath.Join("..")
+	cmd := exec.Command("go", "test", "-run", "TestConfigLoad_MissingAutheliaClientID_Fatal", "-v", "github.com/thamwangjun/generate-visuals-mcp/internal/config")
 	cmd.Env = env
 	out, _ := cmd.CombinedOutput()
 	if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() == 0 {
@@ -121,8 +118,7 @@ func TestConfigLoad_MissingPublicURL(t *testing.T) {
 		"MCP_PUBLIC_URL=",
 		"CONFIG_TEST_SUBPROCESS=1",
 	)
-	cmd := exec.Command("go", "test", "-run", "TestConfigLoad_MissingPublicURL_Fatal", "-v", ".")
-	cmd.Dir = filepath.Join("..")
+	cmd := exec.Command("go", "test", "-run", "TestConfigLoad_MissingPublicURL_Fatal", "-v", "github.com/thamwangjun/generate-visuals-mcp/internal/config")
 	cmd.Env = env
 	out, _ := cmd.CombinedOutput()
 	if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() == 0 {
