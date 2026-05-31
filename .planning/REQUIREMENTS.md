@@ -9,7 +9,7 @@
 
 - [ ] **SRV-01**: MCP server starts and listens on a configurable port (default `:8080`)
 - [ ] **SRV-02**: Server exposes `/mcp` endpoint using Streamable HTTP transport
-- [ ] **SRV-03**: Server serves `/.well-known/oauth-protected-resource` without authentication
+- [x] **SRV-03**: Server serves `/.well-known/oauth-protected-resource` without authentication
 - [ ] **SRV-04**: Server name and version are reported correctly in MCP `initialize` response
 
 ### Tool
@@ -53,7 +53,7 @@
 |-------------|-------|--------|
 | SRV-01 | Phase 1 | Pending |
 | SRV-02 | Phase 1 | Pending |
-| SRV-03 | Phase 2 | Pending |
+| SRV-03 | Phase 2 | Complete |
 | SRV-04 | Phase 1 | Pending |
 | TOOL-01 | Phase 1 | Pending |
 | TOOL-02 | Phase 1 | Pending |
